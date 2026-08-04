@@ -1,0 +1,11 @@
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+pandas==2.3.1
+sqlalchemy==2.0.41
+pydantic==2.11.7
+pydantic-settings==2.10.1
+python-multipart==0.0.20
+openpyxl==3.1.5
+anthropic==0.59.0
+pytest==8.4.1
+
