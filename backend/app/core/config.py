@@ -5,10 +5,11 @@ class Settings(BaseSettings):
     app_env: str = "development"
     database_url: str = "sqlite:///./barrio_pizza.db"
     backend_cors_origins: str = "http://localhost:5173"
-    anthropic_api_key: str = ""
-    anthropic_model: str = "claude-sonnet-4-6"
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-3.6-flash"
+    gemini_daily_limit: int = 1500
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     @property
     def cors_origins(self) -> list[str]:

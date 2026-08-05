@@ -1,15 +1,12 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useState } from "react";
+import type { ColumnConfig } from "../../config/datasetSchemas";
+import { buildCreatePayload } from "../../config/datasetSchemas";
 import { useCreateDatasetRow } from "../../hooks/useDatasets";
-
-const DATASET_FIELDS: Record<string, string[]> = {
-  ingredients: ["ingrediente_id", "nombre", "proveedor", "unidad_base", "formato_compra", "unidad_base_por_formato", "es_perecedero", "costo_unitario_estimado"],
-  inventory: ["sucursal", "ingrediente_id", "stock_actual_unidad_base"],
-  consumption: ["sucursal", "ingrediente_id", "semana", "consumo_unidad_base"],
-  purchase_orders: ["sucursal", "ingrediente_id", "cantidad_formatos"],
-};
 
 interface ManualEntryFormProps {
   dataset: string;
+  columns: ColumnConfig[];
+  onSuccess?: () => void;
 }
 
 function readableError(error: unknown) {
@@ -20,8 +17,7 @@ function readableError(error: unknown) {
   return "No se pudo guardar la fila.";
 }
 
-export function ManualEntryForm({ dataset }: ManualEntryFormProps) {
-  const fields = useMemo(() => DATASET_FIELDS[dataset] ?? [], [dataset]);
+export function ManualEntryForm({ dataset, columns, onSuccess }: ManualEntryFormProps) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<string | null>(null);
   const mutation = useCreateDatasetRow(dataset);
@@ -30,9 +26,10 @@ export function ManualEntryForm({ dataset }: ManualEntryFormProps) {
     event.preventDefault();
     setMessage(null);
     try {
-      await mutation.mutateAsync(values);
+      await mutation.mutateAsync(buildCreatePayload(dataset, values));
       setValues({});
       setMessage("Fila guardada.");
+      onSuccess?.();
     } catch (error) {
       setMessage(readableError(error));
     }
@@ -41,16 +38,25 @@ export function ManualEntryForm({ dataset }: ManualEntryFormProps) {
   return (
     <form className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm" onSubmit={submit}>
       <div className="grid gap-4 md:grid-cols-2">
-        {fields.map((field) => (
-          <label className="block" key={field}>
-            <span className="text-sm font-medium text-slate-700">{field}</span>
+        {columns.map((field) => (
+          <FieldEditor
+            field={field}
+            key={field.key}
+            onChange={(value) => setValues((current) => ({ ...current, [field.key]: value }))}
+            value={values[field.key] ?? ""}
+          />
+        ))}
+        {dataset === "ingredients" && values.proveedor === "__new__" && (
+          <label className="block">
+            <span className="text-sm font-medium text-slate-700">Nuevo proveedor</span>
             <input
               className="mt-1 h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-              onChange={(event) => setValues((current) => ({ ...current, [field]: event.target.value }))}
-              value={values[field] ?? ""}
+              onChange={(event) => setValues((current) => ({ ...current, proveedor_nuevo: event.target.value }))}
+              required
+              value={values.proveedor_nuevo ?? ""}
             />
           </label>
-        ))}
+        )}
       </div>
       <div className="mt-5 flex flex-wrap items-center gap-3">
         <button
@@ -66,3 +72,28 @@ export function ManualEntryForm({ dataset }: ManualEntryFormProps) {
   );
 }
 
+function FieldEditor({ field, value, onChange }: { field: ColumnConfig; value: string; onChange: (value: string) => void }) {
+  const inputClass = "mt-1 h-10 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
+  return (
+    <label className="block">
+      <span className="text-sm font-medium text-slate-700">{field.label}</span>
+      {field.type === "select" || field.type === "boolean" ? (
+        <select className={inputClass} onChange={(event) => onChange(event.target.value)} required={field.required} value={value}>
+          <option value="">Seleccionar</option>
+          {(field.type === "boolean" ? [{ value: "true", label: "Si" }, { value: "false", label: "No" }] : field.options ?? []).map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+      ) : (
+        <input
+          className={inputClass}
+          min={field.type === "number" ? 0 : undefined}
+          onChange={(event) => onChange(event.target.value)}
+          required={field.required}
+          type={field.type === "number" ? "number" : "text"}
+          value={value}
+        />
+      )}
+    </label>
+  );
+}

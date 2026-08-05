@@ -10,6 +10,7 @@ from app.models.inventory import Inventory
 from app.models.purchase_order import PurchaseOrder
 from app.models.supplier import Supplier
 from app.services.alerts.alerts_engine import generate_alerts
+from app.services.alerts.config import alerts_config_dict
 from app.services.alerts.health_score import health_scores_by_branch
 
 
@@ -92,6 +93,7 @@ def get_live_alerts(db: Session) -> list[dict[str, Any]]:
         consumption_rows=data["consumption"],
         inventory_rows=data["inventory"],
         order_rows=data["purchase_orders"],
+        config=alerts_config_dict(db),
     )
 
 

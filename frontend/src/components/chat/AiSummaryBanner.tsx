@@ -24,7 +24,7 @@ export function AiSummaryBanner({ alerts }: AiSummaryBannerProps) {
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-slate-950">Resumen ejecutivo</p>
-          <p className="mt-2 text-sm leading-6 text-slate-700">
+          <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">
             {summary ?? "Genera una lectura breve de prioridades antes de aprobar compras."}
           </p>
           {mutation.isError && <p className="mt-2 text-sm text-red-700">No se pudo generar el resumen.</p>}
@@ -41,4 +41,3 @@ export function AiSummaryBanner({ alerts }: AiSummaryBannerProps) {
     </section>
   );
 }
-

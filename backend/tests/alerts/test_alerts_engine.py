@@ -60,6 +60,7 @@ def test_generates_shortage_alert_with_required_message_shape() -> None:
     assert alerts[0]["tipo"] == "quiebre"
     assert alerts[0]["severidad"] in {"media", "alta"}
     assert alerts[0]["mensaje"] == "ALERTA: Brisas está pidiendo 50.0 kg de Harina 00 menos que lo proyectado → riesgo de quiebre."
+    assert alerts[0]["ingrediente_id"] == "harina"
     assert alerts[0]["explicacion"]["orden_recibida_unidad_base"] == 50
 
 
@@ -85,7 +86,44 @@ def test_generates_forgotten_alert_when_no_order_exists() -> None:
     )
 
     assert alerts[0]["tipo"] == "olvidado"
-    assert "no incluyó Harina 00" in alerts[0]["mensaje"]
+    assert alerts[0]["mensaje"] == "ALERTA: Marbella está pidiendo 25.57 kg de Harina 00 menos que lo proyectado → riesgo de quiebre."
+
+
+def test_duplicate_ingredient_names_are_identified_by_external_id() -> None:
+    ingredients = [
+        {
+            "ingrediente_id": "tomate_a",
+            "nombre": "Tomate",
+            "unidad_base": "kg",
+            "unidad_base_por_formato": 10,
+            "es_perecedero": False,
+            "costo_unitario_estimado": 1,
+        },
+        {
+            "ingrediente_id": "tomate_b",
+            "nombre": "Tomate",
+            "unidad_base": "kg",
+            "unidad_base_por_formato": 5,
+            "es_perecedero": False,
+            "costo_unitario_estimado": 1,
+        },
+    ]
+
+    alerts = generate_alerts(
+        ingredients,
+        _history("Centro", "tomate_a", [20, 20, 20, 20, 20, 20])
+        + _history("Centro", "tomate_b", [20, 20, 20, 20, 20, 20]),
+        [
+            {"sucursal": "Centro", "ingrediente_id": "tomate_a", "stock_actual_unidad_base": 0},
+            {"sucursal": "Centro", "ingrediente_id": "tomate_b", "stock_actual_unidad_base": 0},
+        ],
+        [
+            {"sucursal": "Centro", "ingrediente_id": "tomate_a", "cantidad_formatos": 1},
+            {"sucursal": "Centro", "ingrediente_id": "tomate_b", "cantidad_formatos": 1},
+        ],
+    )
+
+    assert {alert["ingrediente_id"] for alert in alerts} == {"tomate_a", "tomate_b"}
 
 
 def test_health_scores_penalize_by_severity() -> None:

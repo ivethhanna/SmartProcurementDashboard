@@ -1,10 +1,9 @@
-from pathlib import Path
-
 from fastapi.testclient import TestClient
 
 from app.database.database import Base, SessionLocal, engine
 from app.database.seed import reset_database_to_sample_data
 from app.main import app
+from app.services.exports.exports import EXPORT_DIR
 from app.services.forecasting.anomaly_detection import detect_cross_branch_anomalies
 from app.services.procurement.supplier_grouping import build_corrected_orders_by_provider
 
@@ -76,4 +75,4 @@ def test_recommendation_endpoints_and_export() -> None:
     assert export.headers["content-type"].startswith(
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-    assert Path("backend/exports").exists()
+    assert EXPORT_DIR.exists()

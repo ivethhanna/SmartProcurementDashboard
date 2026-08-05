@@ -1,7 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 import { AppHeader } from "./components/common/AppHeader";
-import { useDashboardSummary } from "./hooks/useAlerts";
+import { ManualEntryModal } from "./components/manual_forms/ManualEntryModal";
+import Chat from "./pages/Chat";
 import Dashboard from "./pages/Dashboard";
 import ManualEntry from "./pages/ManualEntry";
 import Recommendations from "./pages/Recommendations";
@@ -19,6 +20,7 @@ const queryClient = new QueryClient({
 
 const pages = {
   dashboard: Dashboard,
+  chat: Chat,
   upload: UploadData,
   manual: ManualEntry,
   recommendations: Recommendations,
@@ -27,7 +29,7 @@ const pages = {
 
 function AppContent() {
   const [activePage, setActivePage] = useState<keyof typeof pages>("dashboard");
-  const { data: summary } = useDashboardSummary();
+  const [manualEntryOpen, setManualEntryOpen] = useState(false);
   const CurrentPage = pages[activePage];
   const navigate = (page: string) => {
     if (page in pages) setActivePage(page as keyof typeof pages);
@@ -35,8 +37,9 @@ function AppContent() {
 
   return (
     <div className="min-h-screen bg-white text-slate-950">
-      <AppHeader activePage={activePage} lastUpdated={summary?.ultima_actualizacion} onNavigate={navigate} />
-      <CurrentPage onNavigate={navigate} />
+      <AppHeader activePage={activePage} onNavigate={navigate} />
+      <CurrentPage onNavigate={navigate} onOpenManualEntry={() => setManualEntryOpen(true)} />
+      <ManualEntryModal open={manualEntryOpen} onOpenChange={setManualEntryOpen} />
     </div>
   );
 }

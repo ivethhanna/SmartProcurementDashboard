@@ -38,31 +38,34 @@ def _index_ingredients(ingredient_rows: list[dict[str, Any]]) -> dict[str, dict[
     return {str(row["ingrediente_id"]): row for row in ingredient_rows}
 
 
-def _severity(alert_type: str, comparison: OrderComparison, projection: ProjectionResult, ingredient: dict[str, Any]) -> str:
+def _severity(alert_type: str, comparison: OrderComparison, projection: ProjectionResult, ingredient: dict[str, Any], config: dict[str, float] | None = None) -> str:
+    config = config or {
+        "porcentaje_diferencia_severidad_alta": 0.5,
+        "porcentaje_diferencia_severidad_media": 0.15,
+        "multiplicador_perecedero": 2.0,
+    }
     is_perishable = bool(ingredient["es_perecedero"])
     relative = comparison.difference_base_units / max(comparison.real_need, comparison.tolerance_base_units, 1)
+    adjusted_relative = relative * (float(config["multiplicador_perecedero"]) if is_perishable else 1)
     high_consumption = projection.projected_consumption >= comparison.tolerance_base_units * 4
 
-    if alert_type == "quiebre":
-        if is_perishable or high_consumption or relative >= 0.5:
+    if alert_type in {"quiebre", "olvidado"}:
+        if high_consumption or adjusted_relative >= float(config["porcentaje_diferencia_severidad_alta"]):
             return "alta"
+        if adjusted_relative >= float(config["porcentaje_diferencia_severidad_media"]):
+            return "media"
         return "media"
 
-    if alert_type == "olvidado":
-        if is_perishable or high_consumption:
-            return "alta"
-        return "media"
-
-    if is_perishable and relative >= 0.5:
+    if adjusted_relative >= float(config["porcentaje_diferencia_severidad_alta"]):
         return "alta"
-    if is_perishable or relative >= 0.5:
+    if adjusted_relative >= float(config["porcentaje_diferencia_severidad_media"]):
         return "media"
     return "baja"
 
 
 def _message(alert_type: str, branch: str, ingredient_name: str, quantity: float, unit: str) -> str:
     rounded = round(quantity, 2)
-    if alert_type == "quiebre":
+    if alert_type in {"quiebre", "olvidado"}:
         return (
             f"ALERTA: {branch} est\u00e1 pidiendo {rounded} {unit} de {ingredient_name} "
             "menos que lo proyectado \u2192 riesgo de quiebre."
@@ -72,10 +75,7 @@ def _message(alert_type: str, branch: str, ingredient_name: str, quantity: float
             f"ALERTA: {branch} est\u00e1 pidiendo {rounded} {unit} de {ingredient_name} "
             "m\u00e1s que lo proyectado \u2192 posible sobre-pedido."
         )
-    return (
-        f"ALERTA: {branch} no incluy\u00f3 {ingredient_name} en la orden de esta semana "
-        "\u2192 riesgo de quiebre."
-    )
+    return f"ALERTA: {branch} tiene una diferencia de {rounded} {unit} de {ingredient_name} \u2192 revisar orden."
 
 
 def _historical_explanation(projection: ProjectionResult) -> list[dict[str, object]]:
@@ -122,6 +122,7 @@ def _build_alert(
     }
     return {
         "sucursal": branch,
+        "ingrediente_id": str(ingredient["ingrediente_id"]),
         "ingrediente": ingredient_name,
         "tipo": alert_type,
         "severidad": severity,
@@ -139,6 +140,7 @@ def generate_alerts(
     consumption_rows: list[dict[str, Any]],
     inventory_rows: list[dict[str, Any]],
     order_rows: list[dict[str, Any]],
+    config: dict[str, float] | None = None,
 ) -> list[dict[str, Any]]:
     ingredients = _index_ingredients(ingredient_rows)
     consumption_by_key = _group_consumption(consumption_rows)
@@ -173,7 +175,7 @@ def generate_alerts(
         if alert_type is None:
             continue
 
-        severity = _severity(alert_type, comparison, projection, ingredient)
+        severity = _severity(alert_type, comparison, projection, ingredient, config)
         alerts.append(_build_alert(branch, ingredient, alert_type, severity, comparison, projection))
 
     return sorted(alerts, key=_alert_score, reverse=True)

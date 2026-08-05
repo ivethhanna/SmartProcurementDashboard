@@ -1,4 +1,4 @@
-import { Download, PackageCheck, Radar } from "lucide-react";
+import { ChevronDown, Download, PackageCheck } from "lucide-react";
 import { useMemo } from "react";
 import { ConsumptionTrendChart } from "../components/charts/ConsumptionTrendChart";
 import { EmptyState } from "../components/common/EmptyState";
@@ -82,10 +82,16 @@ export default function Recommendations() {
               ) : groups.length ? (
                 <div className="divide-y divide-slate-200">
                   {groups.map((group) => (
-                    <details key={group.proveedor} open={groups.length <= 3}>
-                      <summary className="flex cursor-pointer items-center justify-between py-3 text-sm font-semibold text-slate-950">
-                        {group.proveedor}
-                        <span className="text-xs font-medium text-slate-500">{group.items.length} items</span>
+                    <details className="group" key={group.proveedor} open={groups.length <= 3}>
+                      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-md px-2 py-3 text-sm font-semibold text-slate-950 transition hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
+                        <span className="min-w-0 truncate">{group.proveedor}</span>
+                        <span className="inline-flex shrink-0 items-center gap-2">
+                          <span className="text-xs font-medium text-slate-500">{group.items.length} items</span>
+                          <ChevronDown
+                            className="h-4 w-4 text-slate-400 transition-transform group-open:rotate-180"
+                            aria-hidden="true"
+                          />
+                        </span>
                       </summary>
                       <div className="overflow-x-auto pb-3">
                         <table className="min-w-full text-left text-sm">
@@ -130,7 +136,7 @@ export default function Recommendations() {
 function buildTrendPoints(alerts: PurchaseAlert[], ingredients: Record<string, unknown>[], rows: Record<string, unknown>[]) {
   const alert = alerts[0];
   if (!alert) return [];
-  const ingredient = ingredients.find((row) => row.name === alert.ingrediente);
+  const ingredient = ingredients.find((row) => row.external_id === alert.ingrediente_id);
   if (!ingredient) return [];
   return rows
     .filter((row) => row.branch === alert.sucursal && row.ingredient_id === ingredient.id)
@@ -141,4 +147,3 @@ function buildTrendPoints(alerts: PurchaseAlert[], ingredients: Record<string, u
       proyectado: alert.explicacion.consumo_proyectado,
     }));
 }
-

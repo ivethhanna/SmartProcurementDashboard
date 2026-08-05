@@ -4,14 +4,15 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.database.database import get_db
-from app.services.ai.ai_chat import answer_question, build_ai_context, generate_weekly_summary
-from app.services.dashboard_data import get_dashboard_summary, get_live_alerts
+from app.services.ai.ai_chat import answer_question, generate_weekly_summary
+from app.services.dashboard_data import get_live_alerts
 
 router = APIRouter(prefix="/api", tags=["ai"])
 
 
 class ChatRequest(BaseModel):
     pregunta: str
+    historial: list[dict] | None = None
 
 
 class SummaryRequest(BaseModel):
@@ -20,12 +21,9 @@ class SummaryRequest(BaseModel):
 
 @router.post("/chat")
 def chat_with_data(request: ChatRequest, db: Session = Depends(get_db)) -> dict[str, str | bool]:
-    alerts = get_live_alerts(db)
-    summary = get_dashboard_summary(db)
-    context = build_ai_context(alerts, summary)
     return {
-        "respuesta": answer_question(request.pregunta, context),
-        "ai_configurada": bool(settings.anthropic_api_key),
+        "respuesta": answer_question(request.pregunta, request.historial, db),
+        "ai_configurada": bool(settings.gemini_api_key),
     }
 
 
@@ -34,5 +32,5 @@ def weekly_summary(request: SummaryRequest, db: Session = Depends(get_db)) -> di
     alerts = request.alertas if request.alertas is not None else get_live_alerts(db)
     return {
         "summary": generate_weekly_summary(alerts),
-        "ai_configurada": bool(settings.anthropic_api_key),
+        "ai_configurada": bool(settings.gemini_api_key),
     }

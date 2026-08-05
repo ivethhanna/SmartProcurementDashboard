@@ -11,7 +11,7 @@ class Ingredient(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     external_id: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
-    name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
     supplier_id: Mapped[int | None] = mapped_column(ForeignKey("suppliers.id"), nullable=True)
     base_unit: Mapped[str] = mapped_column(String, nullable=False)
     purchase_format: Mapped[str] = mapped_column(String, nullable=False)

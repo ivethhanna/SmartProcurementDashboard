@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 from io import StringIO
 from typing import Any
+from unicodedata import normalize
 
 import pandas as pd
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -28,6 +29,7 @@ DATASET_MODELS = {
 
 UPLOAD_DATASETS = {"ingredients", "inventory", "consumption", "purchase_orders"}
 MAX_UPLOAD_BYTES = 1_000_000
+DEFAULT_BRANCHES = {"Brisas del Golf", "Costa del Este", "Marbella", "Via Argentina"}
 
 
 def _model_for_dataset(dataset: str):
@@ -43,9 +45,24 @@ def _row_to_dict(row: Any) -> dict[str, Any]:
         for column in row.__table__.columns
     }
 
-
 def _parse_bool(value: Any) -> bool:
-    return str(value).strip().lower() in {"si", "sí", "true", "1", "yes", "y"}
+    normalized = normalize("NFKD", str(value).strip().lower()).encode("ascii", "ignore").decode("ascii")
+    return normalized in {"si", "true", "1", "yes", "y"}
+
+
+def _known_branches(db: Session) -> set[str]:
+    branches = set(DEFAULT_BRANCHES)
+    branches.update(str(value) for value in db.scalars(select(Consumption.branch)).all())
+    branches.update(str(value) for value in db.scalars(select(Inventory.branch)).all())
+    branches.update(str(value) for value in db.scalars(select(PurchaseOrder.branch)).all())
+    return branches
+
+
+def _validate_branch(db: Session, value: Any) -> str:
+    branch = str(value).strip()
+    if branch not in _known_branches(db):
+        raise HTTPException(status_code=422, detail=f"sucursal no existe: {branch}")
+    return branch
 
 
 def _ingredient_by_external_id(db: Session) -> dict[str, Ingredient]:
@@ -90,6 +107,13 @@ def _coerce_non_negative_float(value: Any, field: str) -> float:
     return number
 
 
+def _coerce_positive_float(value: Any, field: str) -> float:
+    number = _coerce_non_negative_float(value, field)
+    if number <= 0:
+        raise HTTPException(status_code=422, detail=f"{field} debe ser mayor que cero")
+    return number
+
+
 def _create_ingredient(db: Session, payload: dict[str, Any]) -> Ingredient:
     _require_columns(
         payload,
@@ -110,7 +134,7 @@ def _create_ingredient(db: Session, payload: dict[str, Any]) -> Ingredient:
         supplier_id=supplier.id,
         base_unit=str(payload["unidad_base"]).strip(),
         purchase_format=str(payload["formato_compra"]).strip(),
-        conversion_factor=_coerce_non_negative_float(payload["unidad_base_por_formato"], "unidad_base_por_formato"),
+        conversion_factor=_coerce_positive_float(payload["unidad_base_por_formato"], "unidad_base_por_formato"),
         is_perishable=_parse_bool(payload["es_perecedero"]),
         estimated_unit_cost=_coerce_non_negative_float(payload.get("costo_unitario_estimado", 2.5), "costo_unitario_estimado"),
         updated_at=datetime.now(UTC),
@@ -127,7 +151,7 @@ def _resolve_ingredient_id(db: Session, external_id: Any) -> int:
 def _create_consumption(db: Session, payload: dict[str, Any]) -> Consumption:
     _require_columns(payload, {"sucursal", "ingrediente_id", "semana", "consumo_unidad_base"})
     return Consumption(
-        branch=str(payload["sucursal"]).strip(),
+        branch=_validate_branch(db, payload["sucursal"]),
         ingredient_id=_resolve_ingredient_id(db, payload["ingrediente_id"]),
         week=str(payload["semana"]).strip(),
         quantity_base_unit=_coerce_non_negative_float(payload["consumo_unidad_base"], "consumo_unidad_base"),
@@ -138,7 +162,7 @@ def _create_consumption(db: Session, payload: dict[str, Any]) -> Consumption:
 def _create_inventory(db: Session, payload: dict[str, Any]) -> Inventory:
     _require_columns(payload, {"sucursal", "ingrediente_id", "stock_actual_unidad_base"})
     return Inventory(
-        branch=str(payload["sucursal"]).strip(),
+        branch=_validate_branch(db, payload["sucursal"]),
         ingredient_id=_resolve_ingredient_id(db, payload["ingrediente_id"]),
         quantity_base_unit=_coerce_non_negative_float(payload["stock_actual_unidad_base"], "stock_actual_unidad_base"),
         updated_at=datetime.now(UTC),
@@ -148,7 +172,7 @@ def _create_inventory(db: Session, payload: dict[str, Any]) -> Inventory:
 def _create_purchase_order(db: Session, payload: dict[str, Any]) -> PurchaseOrder:
     _require_columns(payload, {"sucursal", "ingrediente_id", "cantidad_formatos"})
     return PurchaseOrder(
-        branch=str(payload["sucursal"]).strip(),
+        branch=_validate_branch(db, payload["sucursal"]),
         ingredient_id=_resolve_ingredient_id(db, payload["ingrediente_id"]),
         quantity_formats=_coerce_non_negative_float(payload["cantidad_formatos"], "cantidad_formatos"),
         updated_at=datetime.now(UTC),
@@ -161,6 +185,15 @@ ROW_CREATORS = {
     "inventory": _create_inventory,
     "purchase_orders": _create_purchase_order,
 }
+
+
+@router.post("/reset")
+def reset_data(db: Session = Depends(get_db)) -> dict[str, str]:
+    try:
+        reset_database_to_sample_data(db)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"status": "reset"}
 
 
 def _clear_upload_dataset(db: Session, dataset: str) -> None:
@@ -181,6 +214,37 @@ def _replace_dataset_rows(db: Session, dataset: str, rows: list[dict[str, Any]])
     for row in rows:
         db.add(creator(db, row))
     db.commit()
+
+
+@router.get("/reference")
+def get_reference_data(db: Session = Depends(get_db)) -> dict[str, Any]:
+    suppliers = {supplier.id: supplier.name for supplier in db.scalars(select(Supplier)).all()}
+    ingredients = db.scalars(select(Ingredient)).all()
+    purchase_formats = sorted({ingredient.purchase_format for ingredient in ingredients if ingredient.purchase_format})
+    format_types = sorted({str(value).split()[0] for value in purchase_formats if str(value).strip()})
+    units = sorted({ingredient.base_unit for ingredient in ingredients if ingredient.base_unit})
+    weeks = sorted({row.week for row in db.scalars(select(Consumption)).all()})
+    return {
+        "sucursales": sorted(_known_branches(db)),
+        "ingredientes": [
+            {
+                "id": ingredient.id,
+                "ingrediente_id": ingredient.external_id,
+                "nombre": ingredient.name,
+                "proveedor": suppliers.get(ingredient.supplier_id or 0, "Sin proveedor"),
+                "unidad_base": ingredient.base_unit,
+            }
+            for ingredient in sorted(ingredients, key=lambda item: item.name)
+        ],
+        "proveedores": [
+            {"id": supplier.id, "nombre": supplier.name}
+            for supplier in sorted(db.scalars(select(Supplier)).all(), key=lambda item: item.name)
+        ],
+        "unidades": units,
+        "semanas": weeks,
+        "tipos_formato": format_types,
+        "formatos_compra": purchase_formats,
+    }
 
 
 @router.get("/{dataset}")
@@ -228,6 +292,24 @@ def update_dataset_row(
         for field, value in payload.items():
             if not hasattr(row, field) or field == "id":
                 continue
+            if field == "branch":
+                value = _validate_branch(db, value)
+            if field == "ingredient_id":
+                try:
+                    ingredient_id = int(value)
+                except (TypeError, ValueError) as exc:
+                    raise HTTPException(status_code=422, detail=f"ingredient_id invalido: {value}") from exc
+                if db.get(Ingredient, ingredient_id) is None:
+                    raise HTTPException(status_code=422, detail=f"ingredient_id no existe: {value}")
+                value = ingredient_id
+            if isinstance(row, Ingredient) and field == "supplier_id":
+                try:
+                    supplier_id = int(value)
+                except (TypeError, ValueError) as exc:
+                    raise HTTPException(status_code=422, detail=f"supplier_id invalido: {value}") from exc
+                if db.get(Supplier, supplier_id) is None:
+                    raise HTTPException(status_code=422, detail=f"supplier_id no existe: {value}")
+                value = supplier_id
             if field in {"quantity_base_unit", "quantity_formats", "conversion_factor", "estimated_unit_cost"}:
                 value = _coerce_non_negative_float(value, field)
             if field == "is_perishable":
@@ -249,6 +331,27 @@ def update_dataset_row(
 def clear_dataset(dataset: str, db: Session = Depends(get_db)) -> dict[str, str]:
     model = _model_for_dataset(dataset)
     db.execute(delete(model))
+    db.commit()
+    return {"status": "deleted"}
+
+
+@router.delete("/{dataset}/{row_id}")
+def delete_dataset_row(dataset: str, row_id: int, db: Session = Depends(get_db)) -> dict[str, str]:
+    model = _model_for_dataset(dataset)
+    row = db.get(model, row_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Fila no encontrada")
+    if isinstance(row, Ingredient):
+        has_related = any(
+            db.scalar(select(related.id).where(related.ingredient_id == row.id).limit(1)) is not None
+            for related in (Consumption, Inventory, PurchaseOrder)
+        )
+        if has_related:
+            raise HTTPException(
+                status_code=422,
+                detail="No se puede eliminar un ingrediente con consumo, inventario u ordenes relacionadas.",
+            )
+    db.delete(row)
     db.commit()
     return {"status": "deleted"}
 
@@ -284,12 +387,3 @@ async def upload_dataset_csv(
         raise HTTPException(status_code=422, detail=f"CSV invalido: {exc}") from exc
 
     return {"status": "uploaded", "dataset": dataset, "rows": len(df)}
-
-
-@router.post("/reset")
-def reset_data(db: Session = Depends(get_db)) -> dict[str, str]:
-    try:
-        reset_database_to_sample_data(db)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return {"status": "reset"}

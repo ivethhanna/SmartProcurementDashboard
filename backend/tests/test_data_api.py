@@ -51,10 +51,124 @@ def test_create_manual_purchase_order_row() -> None:
 
     response = client.post(
         "/api/data/purchase_orders",
-        json={"sucursal": "Nueva", "ingrediente_id": "harina", "cantidad_formatos": 2},
+        json={"sucursal": "Brisas del Golf", "ingrediente_id": "mozzarella", "cantidad_formatos": 2},
     )
 
     assert response.status_code == 200
-    assert response.json()["branch"] == "Nueva"
+    assert response.json()["branch"] == "Brisas del Golf"
     assert response.json()["quantity_formats"] == 2
 
+
+def test_reference_data_returns_selector_values() -> None:
+    client = TestClient(app)
+
+    response = client.get("/api/data/reference")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "Via Argentina" in body["sucursales"]
+    assert any(item["ingrediente_id"] == "pepperoni" for item in body["ingredientes"])
+    assert any(item["nombre"] == "Distrib. Bella Italia" for item in body["proveedores"])
+    assert "kg" in body["unidades"]
+
+
+def test_create_rejects_unknown_branch() -> None:
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/data/purchase_orders",
+        json={"sucursal": "Sucursal inventada", "ingrediente_id": "harina", "cantidad_formatos": 2},
+    )
+
+    assert response.status_code == 422
+    assert "sucursal no existe" in response.json()["detail"]
+
+
+def test_create_rejects_unknown_ingredient() -> None:
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/data/inventory",
+        json={"sucursal": "Brisas del Golf", "ingrediente_id": "ingrediente_inventado", "stock_actual_unidad_base": 2},
+    )
+
+    assert response.status_code == 422
+    assert "ingrediente_id no existe" in response.json()["detail"]
+
+
+def test_create_ingredient_rejects_zero_conversion_factor() -> None:
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/data/ingredients",
+        json={
+            "ingrediente_id": "qa_factor_cero",
+            "nombre": "QA Factor Cero",
+            "proveedor": "QA",
+            "unidad_base": "kg",
+            "formato_compra": "Saco 0 kg",
+            "unidad_base_por_formato": 0,
+            "es_perecedero": "No",
+            "costo_unitario_estimado": 1,
+        },
+    )
+
+    assert response.status_code == 422
+    assert "unidad_base_por_formato debe ser mayor que cero" in response.json()["detail"]
+
+
+def test_create_ingredient_accepts_si_with_accent_as_perishable() -> None:
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/data/ingredients",
+        json={
+            "ingrediente_id": "qa_perecedero",
+            "nombre": "QA Perecedero",
+            "proveedor": "QA",
+            "unidad_base": "kg",
+            "formato_compra": "Caja 1 kg",
+            "unidad_base_por_formato": 1,
+            "es_perecedero": "sí",
+            "costo_unitario_estimado": 1,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["is_perishable"] is True
+
+
+def test_update_purchase_order_row_persists() -> None:
+    client = TestClient(app)
+    row = client.post(
+        "/api/data/purchase_orders",
+        json={"sucursal": "Brisas del Golf", "ingrediente_id": "mozzarella", "cantidad_formatos": 2},
+    ).json()
+
+    response = client.put(
+        f"/api/data/purchase_orders/{row['id']}",
+        json={"quantity_formats": 4},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["quantity_formats"] == 4
+
+
+def test_delete_row_requires_existing_row_and_blocks_related_ingredient() -> None:
+    client = TestClient(app)
+
+    blocked = client.delete("/api/data/ingredients/1")
+    missing = client.delete("/api/data/purchase_orders/999999")
+
+    assert blocked.status_code == 422
+    assert "No se puede eliminar un ingrediente" in blocked.json()["detail"]
+    assert missing.status_code == 404
+
+
+def test_reset_data_does_not_require_body() -> None:
+    client = TestClient(app)
+
+    response = client.post("/api/data/reset")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "reset"}

@@ -22,6 +22,7 @@ export interface AlertExplanation {
 
 export interface PurchaseAlert {
   sucursal: string;
+  ingrediente_id: string;
   ingrediente: string;
   tipo: AlertType;
   severidad: Severity;

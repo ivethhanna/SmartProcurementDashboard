@@ -1,15 +1,11 @@
 import { useState } from "react";
 import { ManualEntryForm } from "../components/manual_forms/ManualEntryForm";
-
-const DATASETS = [
-  { key: "ingredients", label: "Ingredientes" },
-  { key: "inventory", label: "Inventario" },
-  { key: "consumption", label: "Consumo" },
-  { key: "purchase_orders", label: "Ordenes" },
-];
+import { DATASETS, formColumns } from "../config/datasetSchemas";
+import { useReferenceData } from "../hooks/useReferenceData";
 
 export default function ManualEntry() {
   const [dataset, setDataset] = useState(DATASETS[3].key);
+  const reference = useReferenceData();
 
   return (
     <main className="bg-white">
@@ -35,9 +31,19 @@ export default function ManualEntry() {
           ))}
         </div>
 
-        <ManualEntryForm dataset={dataset} />
+        <ManualEntryForm
+          columns={formColumns(dataset, {
+            sucursales: reference.sucursales,
+            ingredientes: reference.ingredientes,
+            proveedores: reference.proveedores,
+            unidades: reference.unidades,
+            semanas: reference.semanas,
+            tiposFormato: reference.tiposFormato,
+            formatosCompra: reference.formatosCompra,
+          })}
+          dataset={dataset}
+        />
       </div>
     </main>
   );
 }
-

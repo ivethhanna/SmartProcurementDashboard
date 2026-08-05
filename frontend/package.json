@@ -10,15 +10,12 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "axios": "latest",
     "@tanstack/react-query": "^5.62.7",
-    "class-variance-authority": "latest",
-    "clsx": "latest",
+    "axios": "latest",
     "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "recharts": "latest",
-    "tailwind-merge": "latest"
+    "recharts": "latest"
   },
   "devDependencies": {
     "@eslint/js": "latest",
@@ -33,6 +30,7 @@
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
     "typescript": "latest",
+    "typescript-eslint": "^8.66.0",
     "vite": "^5.4.11"
   }
 }

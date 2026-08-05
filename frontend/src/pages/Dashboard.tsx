@@ -1,10 +1,9 @@
-import { Download } from "lucide-react";
+import { Download, PencilLine } from "lucide-react";
 import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useMemo, useState } from "react";
 import { AlertsList } from "../components/alerts/AlertsList";
 import { ConsumptionTrendChart } from "../components/charts/ConsumptionTrendChart";
 import { AiSummaryBanner } from "../components/chat/AiSummaryBanner";
-import { ChatWidget } from "../components/chat/ChatWidget";
 import { EmptyState } from "../components/common/EmptyState";
 import { SectionCard } from "../components/common/SectionCard";
 import { HealthScoreBadge } from "../components/dashboard/HealthScoreBadge";
@@ -17,6 +16,7 @@ import type { AlertType, PurchaseAlert, Severity } from "../types";
 
 interface DashboardProps {
   onNavigate?: (page: string) => void;
+  onOpenManualEntry?: () => void;
 }
 
 const alertTypes: Array<{ value: AlertType | "todas"; label: string }> = [
@@ -33,7 +33,7 @@ const severities: Array<{ value: Severity | "todas"; label: string }> = [
   { value: "baja", label: "Baja" },
 ];
 
-export default function Dashboard({ onNavigate }: DashboardProps) {
+export default function Dashboard({ onNavigate, onOpenManualEntry }: DashboardProps) {
   const [branch, setBranch] = useState("todas");
   const [type, setType] = useState<AlertType | "todas">("todas");
   const [severity, setSeverity] = useState<Severity | "todas">("todas");
@@ -45,7 +45,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
   const ingredientsQuery = useDataset("ingredients");
   const ordersQuery = useOrdersByProvider();
 
-  const alerts = alertsQuery.data ?? [];
+  const alerts = useMemo(() => alertsQuery.data ?? [], [alertsQuery.data]);
   const summary = summaryQuery.data;
   const branches = useMemo(
     () => Object.keys(summary?.health_scores ?? {}).sort(),
@@ -76,12 +76,22 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
   return (
     <main className="bg-white">
       <div className="mx-auto max-w-[1440px] px-4 py-6 lg:px-6">
-        <div className="mb-6">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Revision semanal</p>
-          <h1 className="mt-2 text-2xl font-semibold tracking-normal text-slate-950">Ordenes de compra</h1>
-          <p className="mt-1 text-sm text-slate-600">
-            Estado general, riesgos y acciones para las 4 sucursales piloto.
-          </p>
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Revision semanal</p>
+            <h1 className="mt-2 text-2xl font-semibold tracking-normal text-slate-950">Ordenes de compra</h1>
+            <p className="mt-1 text-sm text-slate-600">
+              Estado general, riesgos y acciones para las 4 sucursales piloto.
+            </p>
+          </div>
+          <button
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-slate-950 px-3 text-sm font-medium text-white hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            onClick={onOpenManualEntry}
+            type="button"
+          >
+            <PencilLine className="h-4 w-4" aria-hidden="true" />
+            Captura manual
+          </button>
         </div>
 
         <KpiCards
@@ -121,7 +131,6 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 
           <aside className="space-y-4 xl:sticky xl:top-24 xl:self-start">
             <AiSummaryBanner alerts={alerts} />
-            <ChatWidget />
 
             <SectionCard title="Health score">
               <div className="space-y-2">
@@ -173,7 +182,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 function buildTrendPoints(alerts: PurchaseAlert[], ingredients: Record<string, unknown>[], rows: Record<string, unknown>[]) {
   const alert = alerts[0];
   if (!alert) return [];
-  const ingredient = ingredients.find((row) => row.name === alert.ingrediente);
+  const ingredient = ingredients.find((row) => row.external_id === alert.ingrediente_id);
   if (!ingredient) return [];
   return rows
     .filter((row) => row.branch === alert.sucursal && row.ingredient_id === ingredient.id)
