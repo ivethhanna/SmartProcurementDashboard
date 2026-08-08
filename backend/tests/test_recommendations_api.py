@@ -76,3 +76,86 @@ def test_recommendation_endpoints_and_export() -> None:
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
     assert EXPORT_DIR.exists()
+
+
+def test_orders_by_provider_reflects_new_supplier_from_manual_entries() -> None:
+    client = TestClient(app)
+
+    ingredient = client.post(
+        "/api/data/ingredients",
+        json={
+            "ingrediente_id": "qa_proveedor_nuevo",
+            "nombre": "QA Proveedor Nuevo",
+            "proveedor": "Proveedor QA Nuevo",
+            "unidad_base": "kg",
+            "formato_compra": "Caja 1 kg",
+            "unidad_base_por_formato": 1,
+            "es_perecedero": "No",
+            "costo_unitario_estimado": 1,
+        },
+    )
+    assert ingredient.status_code == 200
+
+    for week in range(1, 7):
+        response = client.post(
+            "/api/data/consumption",
+            json={
+                "branch": "Via Argentina",
+                "ingredient_id": "qa_proveedor_nuevo",
+                "week": f"S{week}",
+                "quantity_base_unit": 10,
+            },
+        )
+        assert response.status_code == 200
+
+    inventory = client.post(
+        "/api/data/inventory",
+        json={
+            "branch": "Via Argentina",
+            "ingredient_id": "qa_proveedor_nuevo",
+            "quantity_base_unit": 0,
+        },
+    )
+    assert inventory.status_code == 200
+
+    providers = client.get("/api/orders-by-provider")
+
+    assert providers.status_code == 200
+    groups = {group["proveedor"]: group for group in providers.json()}
+    assert "Proveedor QA Nuevo" in groups
+    assert groups["Proveedor QA Nuevo"]["items"][0]["ingrediente"] == "QA Proveedor Nuevo"
+
+
+def test_orders_by_provider_moves_existing_ingredient_to_new_supplier() -> None:
+    client = TestClient(app)
+
+    before = client.get("/api/orders-by-provider").json()
+    assert any(
+        group["proveedor"] == "Molinos Central"
+        and any(item["ingrediente_id"] == "harina" for item in group["items"])
+        for group in before
+    )
+
+    ingredient = client.post(
+        "/api/data/ingredients",
+        json={
+            "ingrediente_id": "harina",
+            "nombre": "Harina 00",
+            "proveedor": "Proveedor Harina Nuevo",
+            "unidad_base": "kg",
+            "formato_compra": "Saco 25 kg",
+            "unidad_base_por_formato": 25,
+            "es_perecedero": "No",
+            "costo_unitario_estimado": 1,
+        },
+    )
+
+    assert ingredient.status_code == 200
+    assert ingredient.json()["status"] == "updated"
+
+    after = client.get("/api/orders-by-provider").json()
+    assert any(
+        group["proveedor"] == "Proveedor Harina Nuevo"
+        and any(item["ingrediente_id"] == "harina" for item in group["items"])
+        for group in after
+    )

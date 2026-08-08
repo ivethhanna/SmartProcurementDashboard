@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.database.database import Base, SessionLocal, engine
@@ -57,6 +58,50 @@ def test_create_manual_purchase_order_row() -> None:
     assert response.status_code == 200
     assert response.json()["branch"] == "Brisas del Golf"
     assert response.json()["quantity_formats"] == 2
+
+
+@pytest.mark.parametrize(
+    ("dataset", "payload_1", "payload_2", "quantity_field"),
+    [
+        (
+            "inventory",
+            {"branch": "Via Argentina", "ingredient_id": 11, "quantity_base_unit": 500.0},
+            {"branch": "Via Argentina", "ingredient_id": 11, "quantity_base_unit": 300.0},
+            "quantity_base_unit",
+        ),
+        (
+            "purchase_orders",
+            {"branch": "Costa del Este", "ingredient_id": 20, "quantity_formats": 33.0},
+            {"branch": "Costa del Este", "ingredient_id": 20, "quantity_formats": 10.0},
+            "quantity_formats",
+        ),
+        (
+            "consumption",
+            {"branch": "Via Argentina", "ingredient_id": 11, "week": "S1", "quantity_base_unit": 80.0},
+            {"branch": "Via Argentina", "ingredient_id": 11, "week": "S1", "quantity_base_unit": 95.0},
+            "quantity_base_unit",
+        ),
+    ],
+)
+def test_create_duplicate_composite_key_updates_without_500(
+    dataset: str,
+    payload_1: dict[str, object],
+    payload_2: dict[str, object],
+    quantity_field: str,
+) -> None:
+    client = TestClient(app)
+
+    response_1 = client.post(f"/api/data/{dataset}", json=payload_1)
+    response_2 = client.post(f"/api/data/{dataset}", json=payload_2)
+
+    assert response_1.status_code == 200
+    assert response_1.json()["status"] == "updated"
+    assert response_2.status_code != 500, (
+        f"Duplicate entry in {dataset} still crashes with an unhandled 500 error"
+    )
+    assert response_2.status_code == 200
+    assert response_2.json()["status"] == "updated"
+    assert response_2.json()[quantity_field] == payload_2[quantity_field]
 
 
 def test_reference_data_returns_selector_values() -> None:

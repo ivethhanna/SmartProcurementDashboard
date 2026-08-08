@@ -56,8 +56,12 @@ export async function resetData() {
   return response.data;
 }
 
+export type CreateDatasetRowResponse = Record<string, unknown> & {
+  status?: "created" | "updated";
+};
+
 export async function createDatasetRow(dataset: string, payload: Record<string, unknown>) {
-  const response = await api.post<Record<string, unknown>>(`/api/data/${dataset}`, payload);
+  const response = await api.post<CreateDatasetRowResponse>(`/api/data/${dataset}`, payload);
   return response.data;
 }
 

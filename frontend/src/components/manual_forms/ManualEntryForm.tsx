@@ -1,7 +1,8 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import type { ColumnConfig } from "../../config/datasetSchemas";
 import { buildCreatePayload } from "../../config/datasetSchemas";
-import { useCreateDatasetRow } from "../../hooks/useDatasets";
+import { useCreateDatasetRow, useDataset } from "../../hooks/useDatasets";
+import { useReferenceData } from "../../hooks/useReferenceData";
 
 interface ManualEntryFormProps {
   dataset: string;
@@ -21,14 +22,20 @@ export function ManualEntryForm({ dataset, columns, onSuccess }: ManualEntryForm
   const [values, setValues] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<string | null>(null);
   const mutation = useCreateDatasetRow(dataset);
+  const existingRows = useDataset(dataset);
+  const reference = useReferenceData();
+  const existingMatch = useMemo(
+    () => findExistingManualEntry(dataset, values, existingRows.data ?? [], reference.ingredientes),
+    [dataset, existingRows.data, reference.ingredientes, values],
+  );
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setMessage(null);
     try {
-      await mutation.mutateAsync(buildCreatePayload(dataset, values));
+      const response = await mutation.mutateAsync(buildCreatePayload(dataset, values));
       setValues({});
-      setMessage("Fila guardada.");
+      setMessage(response.status === "updated" ? "Registro actualizado." : "Registro creado.");
       onSuccess?.();
     } catch (error) {
       setMessage(readableError(error));
@@ -66,10 +73,42 @@ export function ManualEntryForm({ dataset, columns, onSuccess }: ManualEntryForm
         >
           {mutation.isPending ? "Guardando..." : "Guardar fila"}
         </button>
+        {existingMatch && (
+          <p className="text-sm text-amber-700">{existingMatch.message}</p>
+        )}
         {message && <p className="text-sm text-slate-600">{message}</p>}
       </div>
     </form>
   );
+}
+
+function findExistingManualEntry(
+  dataset: string,
+  values: Record<string, string>,
+  rows: Record<string, unknown>[],
+  ingredients: Array<{ id: number; ingrediente_id: string }>,
+) {
+  if (dataset === "ingredients") {
+    if (!values.ingrediente_id) return undefined;
+    const existingIngredient = rows.find((row) => String(row.external_id) === values.ingrediente_id);
+    return existingIngredient
+      ? { row: existingIngredient, message: "Ya existe este ingrediente; al guardar se actualizara." }
+      : undefined;
+  }
+  if (!["consumption", "inventory", "purchase_orders"].includes(dataset)) return undefined;
+  const branch = values.sucursal;
+  const ingredient = ingredients.find((item) => item.ingrediente_id === values.ingrediente_id);
+  if (!branch || !ingredient) return undefined;
+  const week = values.semana;
+  if (dataset === "consumption" && !week) return undefined;
+
+  const row = rows.find((item) => {
+    const sameBranch = String(item.branch) === branch;
+    const sameIngredient = Number(item.ingredient_id) === ingredient.id;
+    const sameWeek = dataset !== "consumption" || String(item.week) === week;
+    return sameBranch && sameIngredient && sameWeek;
+  });
+  return row ? { row, message: "Ya existe un registro para esta combinacion; al guardar se actualizara." } : undefined;
 }
 
 function FieldEditor({ field, value, onChange }: { field: ColumnConfig; value: string; onChange: (value: string) => void }) {

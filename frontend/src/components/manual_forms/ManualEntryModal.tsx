@@ -83,7 +83,6 @@ export function ManualEntryModal({ open, onOpenChange, initialDataset = "purchas
               formatosCompra: reference.formatosCompra,
             })}
             dataset={dataset}
-            onSuccess={() => onOpenChange(false)}
           />
         </div>
       </div>

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.database.database import get_db
 from app.database.seed import validate_columns, reset_database_to_sample_data
+from app.database.upsert_helper import upsert_by_unique_key
 from app.models.consumption import Consumption
 from app.models.ingredient import Ingredient
 from app.models.inventory import Inventory
@@ -97,6 +98,13 @@ def _require_columns(payload: dict[str, Any], required: set[str]) -> None:
         raise HTTPException(status_code=422, detail=f"Campos faltantes: {', '.join(sorted(missing))}")
 
 
+def _payload_value(payload: dict[str, Any], keys: tuple[str, ...], field: str) -> Any:
+    for key in keys:
+        if key in payload:
+            return payload[key]
+    raise HTTPException(status_code=422, detail=f"Campos faltantes: {field}")
+
+
 def _coerce_non_negative_float(value: Any, field: str) -> float:
     try:
         number = float(value)
@@ -142,39 +150,57 @@ def _create_ingredient(db: Session, payload: dict[str, Any]) -> Ingredient:
 
 
 def _resolve_ingredient_id(db: Session, external_id: Any) -> int:
-    ingredient = _ingredient_by_external_id(db).get(str(external_id).strip())
-    if ingredient is None:
-        raise HTTPException(status_code=422, detail=f"ingrediente_id no existe: {external_id}")
-    return ingredient.id
+    value = str(external_id).strip()
+    ingredient = _ingredient_by_external_id(db).get(value)
+    if ingredient is not None:
+        return ingredient.id
+    try:
+        ingredient_id = int(value)
+    except (TypeError, ValueError):
+        ingredient_id = 0
+    if ingredient_id and db.get(Ingredient, ingredient_id) is not None:
+        return ingredient_id
+    raise HTTPException(status_code=422, detail=f"ingrediente_id no existe: {external_id}")
 
 
 def _create_consumption(db: Session, payload: dict[str, Any]) -> Consumption:
-    _require_columns(payload, {"sucursal", "ingrediente_id", "semana", "consumo_unidad_base"})
+    branch = _payload_value(payload, ("sucursal", "branch"), "sucursal")
+    ingredient_id = _payload_value(payload, ("ingrediente_id", "ingredient_id"), "ingrediente_id")
+    week = _payload_value(payload, ("semana", "week"), "semana")
+    quantity = _payload_value(
+        payload,
+        ("consumo_unidad_base", "quantity_base_unit", "quantity_consumed"),
+        "consumo_unidad_base",
+    )
     return Consumption(
-        branch=_validate_branch(db, payload["sucursal"]),
-        ingredient_id=_resolve_ingredient_id(db, payload["ingrediente_id"]),
-        week=str(payload["semana"]).strip(),
-        quantity_base_unit=_coerce_non_negative_float(payload["consumo_unidad_base"], "consumo_unidad_base"),
+        branch=_validate_branch(db, branch),
+        ingredient_id=_resolve_ingredient_id(db, ingredient_id),
+        week=str(week).strip(),
+        quantity_base_unit=_coerce_non_negative_float(quantity, "consumo_unidad_base"),
         updated_at=datetime.now(UTC),
     )
 
 
 def _create_inventory(db: Session, payload: dict[str, Any]) -> Inventory:
-    _require_columns(payload, {"sucursal", "ingrediente_id", "stock_actual_unidad_base"})
+    branch = _payload_value(payload, ("sucursal", "branch"), "sucursal")
+    ingredient_id = _payload_value(payload, ("ingrediente_id", "ingredient_id"), "ingrediente_id")
+    quantity = _payload_value(payload, ("stock_actual_unidad_base", "quantity_base_unit"), "stock_actual_unidad_base")
     return Inventory(
-        branch=_validate_branch(db, payload["sucursal"]),
-        ingredient_id=_resolve_ingredient_id(db, payload["ingrediente_id"]),
-        quantity_base_unit=_coerce_non_negative_float(payload["stock_actual_unidad_base"], "stock_actual_unidad_base"),
+        branch=_validate_branch(db, branch),
+        ingredient_id=_resolve_ingredient_id(db, ingredient_id),
+        quantity_base_unit=_coerce_non_negative_float(quantity, "stock_actual_unidad_base"),
         updated_at=datetime.now(UTC),
     )
 
 
 def _create_purchase_order(db: Session, payload: dict[str, Any]) -> PurchaseOrder:
-    _require_columns(payload, {"sucursal", "ingrediente_id", "cantidad_formatos"})
+    branch = _payload_value(payload, ("sucursal", "branch"), "sucursal")
+    ingredient_id = _payload_value(payload, ("ingrediente_id", "ingredient_id"), "ingrediente_id")
+    quantity = _payload_value(payload, ("cantidad_formatos", "quantity_formats"), "cantidad_formatos")
     return PurchaseOrder(
-        branch=_validate_branch(db, payload["sucursal"]),
-        ingredient_id=_resolve_ingredient_id(db, payload["ingrediente_id"]),
-        quantity_formats=_coerce_non_negative_float(payload["cantidad_formatos"], "cantidad_formatos"),
+        branch=_validate_branch(db, branch),
+        ingredient_id=_resolve_ingredient_id(db, ingredient_id),
+        quantity_formats=_coerce_non_negative_float(quantity, "cantidad_formatos"),
         updated_at=datetime.now(UTC),
     )
 
@@ -184,6 +210,13 @@ ROW_CREATORS = {
     "consumption": _create_consumption,
     "inventory": _create_inventory,
     "purchase_orders": _create_purchase_order,
+}
+
+UPSERT_UNIQUE_KEYS = {
+    "ingredients": ("external_id",),
+    "consumption": ("branch", "ingredient_id", "week"),
+    "inventory": ("branch", "ingredient_id"),
+    "purchase_orders": ("branch", "ingredient_id"),
 }
 
 
@@ -264,10 +297,19 @@ def create_dataset_row(
         raise HTTPException(status_code=404, detail=f"Dataset no soportado: {dataset}")
     try:
         row = ROW_CREATORS[dataset](db, payload)
+        if dataset in UPSERT_UNIQUE_KEYS:
+            row_data = _row_to_dict(row)
+            row_data.pop("id", None)
+            unique_fields = UPSERT_UNIQUE_KEYS[dataset]
+            unique_filters = {field: row_data.pop(field) for field in unique_fields}
+            row, was_created = upsert_by_unique_key(db, type(row), unique_filters, row_data)
+            db.refresh(row)
+            return {**_row_to_dict(row), "status": "created" if was_created else "updated"}
+
         db.add(row)
         db.commit()
         db.refresh(row)
-        return _row_to_dict(row)
+        return {**_row_to_dict(row), "status": "created"}
     except HTTPException:
         db.rollback()
         raise
