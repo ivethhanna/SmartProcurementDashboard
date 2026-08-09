@@ -49,3 +49,13 @@ app.include_router(config_api.router)
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+@app.get("/debug/cors")
+def debug_cors() -> dict:
+    import os
+    return {
+        "allowed_origins_raw": settings.allowed_origins,
+        "cors_origins_parsed": settings.cors_origins,
+        "database_url": settings.database_url,
+        "cwd": os.getcwd(),
+    }
