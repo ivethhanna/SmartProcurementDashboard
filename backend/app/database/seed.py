@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from unicodedata import normalize
 
@@ -12,6 +13,7 @@ from app.models.purchase_order import PurchaseOrder
 from app.models.supplier import Supplier
 
 
+logger = logging.getLogger(__name__)
 SAMPLE_DATA_DIR = Path(__file__).resolve().parents[2] / "sample_data"
 
 EXPECTED_COLUMNS = {
@@ -184,6 +186,8 @@ def reset_database_to_sample_data(db: Session) -> None:
 def seed_database_if_empty(db: Session) -> bool:
     has_ingredients = db.scalar(select(Ingredient.id).limit(1)) is not None
     if has_ingredients:
+        logger.info("Base de datos ya tiene datos, no se resembró")
         return False
+    logger.info("Base de datos vacía, sembrando desde %s", SAMPLE_DATA_DIR)
     reset_database_to_sample_data(db)
     return True

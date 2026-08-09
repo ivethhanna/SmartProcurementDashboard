@@ -1,8 +1,14 @@
 import axios from "axios";
 import type { BranchAnomaly, DashboardSummary, ProviderOrderGroup, PurchaseAlert } from "../types";
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+
+if (!API_BASE_URL) {
+  throw new Error("Falta configurar VITE_API_BASE_URL con la URL del backend");
+}
+
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000",
+  baseURL: API_BASE_URL,
 });
 
 export interface AlertFilters {
